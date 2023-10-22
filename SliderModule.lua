@@ -1,13 +1,29 @@
 local module = {}
 
 local UserInputService = game:GetService("UserInputService")
+local gs = game:GetService("GamepadService")
+local RunService = game:GetService("RunService")
 
-function module.Initialize(container, detents)
+local initialized = false
+
+function module.Initialize(container : CanvasGroup, detents, initialValue)
+	if initialized then
+		-- Update logic
+		local initialWidth = (container.AbsoluteSize.X / detents) * initialValue
+		local slider = container:WaitForChild("Slider")
+		slider.Size = UDim2.new(0, initialWidth, 1, 0)
+		slider.Text = tostring(initialValue)
+		return
+	end
+	
 	local slider : Frame = container:WaitForChild("Slider")
-	local count : TextLabel = slider:WaitForChild("Count")
 	local origColor = slider.BackgroundColor3
 	local UserInputService = game:GetService("UserInputService")
 	slider.Size = UDim2.new(0, container.AbsoluteSize.Y, 1, 0)
+	-- Inside the Initialize function, after setting slider.Size:
+	local initialWidth = (container.AbsoluteSize.X / detents) * initialValue
+	slider.Size = UDim2.new(0, initialWidth, 1, 0)
+	slider.Text = tostring(initialValue)
 
 	local plr = game.Players.LocalPlayer
 	local mouse = plr:GetMouse()
@@ -18,11 +34,12 @@ function module.Initialize(container, detents)
 	local lastSnappedWidth = nil  -- Keep track of the last width value that triggered a tween
 	local initialSliderWidth = nil  -- Store the initial width of the slider when dragging starts
 	local lastMouseX = nil  -- Store the previous mouse X position
+	
 
-	local function onMouseMove()
+	local function onMouseMove(diff)
 		if isDragging and initialX then
 			-- Calculate the desired width based on the difference between the current mouse position and the starting mouse position
-			local desiredWidth = initialSliderWidth + (mouse.X - initialX)
+			local desiredWidth = initialSliderWidth + diff
 
 			-- Clamp the desired width to the bounds of the container
 			desiredWidth = math.clamp(desiredWidth, 0, container.AbsoluteSize.X)
@@ -37,7 +54,7 @@ function module.Initialize(container, detents)
 			local currentDetent = math.round(snappedWidth / detentWidth)
 
 			-- Update the count label
-			count.Text = tostring(currentDetent)
+			slider.Text = tostring(currentDetent)
 			-- Check if the snappedWidth is different from the lastSnappedWidth
 			if snappedWidth ~= lastSnappedWidth then
 				game:GetService("TweenService"):Create(slider, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, math.clamp(snappedWidth, container.AbsoluteSize.Y, container.AbsoluteSize.X), 1, 0)}):Play()
@@ -53,16 +70,18 @@ function module.Initialize(container, detents)
 			lastMouseX = mouse.X  -- Update the lastMouseX value for the next iteration
 		end
 	end
-
-	local function onInputChanged(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement then
-			onMouseMove()
+	
+	local function checkInput()
+		if isDragging then
+			if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or UserInputService:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonA) then
+				local diff = (mouse.X - initialX)
+				onMouseMove(diff)
+			end
 		end
 	end
-
+	
 	local function onInputBegan(input, GPE)
 		if not GPE then
-			print(input.UserInputType)
 			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 				isDragging = true
 				initialX = input.Position.X
@@ -72,17 +91,14 @@ function module.Initialize(container, detents)
 				if moveConnection then
 					moveConnection:Disconnect()  -- Disconnect any previous connections just to be safe
 				end
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					moveConnection = UserInputService.InputChanged:Connect(onInputChanged)
-				else
-					moveConnection = UserInputService.TouchMoved:Connect(onMouseMove)
-				end
+				moveConnection = RunService.Heartbeat:Connect(checkInput)
 			end
 		end
 	end
-
+	
 	local function onInputEnded(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.Gamepad1 then
+			gs:DisableGamepadCursor()
 			isDragging = false
 			initialX = nil
 			if moveConnection then
@@ -91,10 +107,21 @@ function module.Initialize(container, detents)
 			end
 		end
 	end
+	
+	if not initialized then
+		container.InputBegan:Connect(onInputBegan)
+		UserInputService.TouchEnded:Connect(onInputEnded)
+		UserInputService.InputEnded:Connect(onInputEnded)  -- For mouse input
 
-	container.InputBegan:Connect(onInputBegan)
-	UserInputService.TouchEnded:Connect(onInputEnded)
-	UserInputService.InputEnded:Connect(onInputEnded)  -- For mouse input
+		container.SelectionGained:Connect(function()
+			gs:EnableGamepadCursor(container)
+		end)
+
+		container.SelectionLost:Connect(function()
+			gs:DisableGamepadCursor()
+		end)
+	end
+	initialized = true
 end
 
 return module
